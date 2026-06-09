@@ -2,7 +2,7 @@
 
 # 1. Clear screen and update system
 clear
-echo -e "\e[1;32m[-] Preparing your PAK Extractor tool...\e[0m"
+echo -e "\e[1;32m[-] Preparing your Advanced PAK Tool (Unpack & Repack)...\e[0m"
 sleep 2
 
 echo -e "\e[1;34m[-] Updating system packages and installing Python...\e[0m"
@@ -10,30 +10,139 @@ pkg update -y && pkg upgrade -y
 pkg install python -y
 
 # 2. Create tool directory
-mkdir -p $HOME/pak_extractor
-cd $HOME/pak_extractor
+mkdir -p $HOME/pak_tool
+cd $HOME/pak_tool
 
-# 3. Create the Python extractor script
-echo -e "\e[1;34m[-] Creating script file...\e[0m"
-cat << 'EOF' > extractor.py
+# 3. Create the Python main script
+echo -e "\e[1;34m[-] Creating core script files...\e[0m"
+cat << 'EOF' > main_tool.py
 import os
 import sys
 import struct
 
-def extract_pak(pak_path, out_dir):
+def unpack_pak(pak_path, out_dir):
     if not os.path.exists(pak_path):
-        print(f"[-] Error: File not found at: {pak_path}")
+        print(f"[-] Error: Raw PAK file not found at: {pak_path}")
         return
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
+    print(f"[+] Reading Raw PAK: {pak_path}")
     with open(pak_path, 'rb') as f:
         magic = f.read(4)
         if magic != b'PACK':
-            print("[-] Error: This is not a standard PAK file (It might be encrypted).")
+            print("[-] Error: Not a standard PAK file (or it is encrypted).")
             return
         offset, size = struct.unpack('<II', f.read(8))
         f.seek(offset)
+        num_files = size // 64
+        print(f"[+] Found {num_files} files inside. Unpacking to: {out_dir}")
+        
+        for _ in range(num_files):
+            file_name = f.read(56).decode('utf-8', errors='ignore').strip('\x00')
+            file_offset, file_size = struct.unpack('<II', f.read(8))
+            current_pos = f.tell()
+            
+            f.seek(file_offset)
+            file_data = f.read(file_size)
+            
+            target_path = os.path.join(out_dir, file_name)
+            target_subdir = os.path.dirname(target_path)
+            if not os.path.exists(target_subdir):
+                os.makedirs(target_subdir)
+                
+            with open(target_path, 'wb') as out_file:
+                out_file.write(file_data)
+            print(f"[+] Extracted: {file_name}")
+            f.seek(current_pos)
+    print("[+] Unpack process completed successfully!")
+
+def repack_pak(input_dir, output_pak):
+    if not os.path.exists(input_dir):
+        print(f"[-] Error: Unpacked folder not found at: {input_dir}")
+        return
+
+    print(f"[+] Reading Unpacked Folder: {input_dir}")
+    files_to_pack = []
+    for root, dirs, files in os.walk(input_dir):
+        for file in files:
+            full_path = os.path.join(root, file)
+            rel_path = os.path.relpath(full_path, input_dir)
+            files_to_pack.append((full_path, rel_path))
+
+    if not files_to_pack:
+        print("[-] Error: No files found in the specified folder to repack.")
+        return
+
+    print(f"[+] Packing {len(files_to_pack)} files into new raw PAK: {output_pak}")
+    
+    # Header templates
+    header_offset = 12
+    current_offset = header_offset
+    file_entries = []
+
+    with open(output_pak, 'wb') as f:
+        # Write dummy header first
+        f.write(b'PACK' + struct.pack('<II', 0, 0))
+        
+        # Write files data and collect index info
+        for full_path, rel_path in files_to_pack:
+            with open(full_path, 'rb') as in_file:
+                data = in_file.read()
+            file_size = len(data)
+            
+            # Format file name to fixed 56 bytes
+            name_bytes = rel_path.encode('utf-8')[:55].ljust(56, b'\x00')
+            file_entries.append((name_bytes, current_offset, file_size))
+            
+            f.write(data)
+            current_offset += file_size
+            
+        # Write Index (Table of Contents) at the end
+        index_offset = f.tell()
+        for name_bytes, offset, size in file_entries:
+            f.write(name_bytes)
+            f.write(struct.pack('<II', offset, size))
+            
+        index_size = f.tell() - index_offset
+        
+        # Go back and fix the real Header values
+        f.seek(4)
+        f.write(struct.pack('<II', index_offset, index_size))
+        
+    print("[+] Repack process completed successfully!")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 4:
+        print("Usage:")
+        print("  pak-tool unpack [RAW_PAK_PATH] [UNPACKED_DIR_PATH]")
+        print("  pak-tool repack [UNPACKED_DIR_PATH] [NEW_PAK_OUTPUT_PATH]")
+    else:
+        mode = sys.argv[1].lower()
+        path_a = sys.argv[2]
+        path_b = sys.argv[3]
+        
+        if mode == "unpack":
+            unpack_pak(path_a, path_b)
+        elif mode == "repack":
+            repack_pak(path_a, path_b)
+        else:
+            print("[-] Unknown mode. Use 'unpack' or 'repack'.")
+EOF
+
+# 4. Make the tool a global command named pak-tool
+echo 'python $HOME/pak_tool/main_tool.py "$@"' > $PREFIX/bin/pak-tool
+chmod +x $PREFIX/bin/pak-tool
+
+clear
+echo -e "\e[1;32m==================================================\e[0m"
+echo -e "\e[1;36m       Advanced PAK Tool Installed!              \e[0m"
+echo -e "\e[1;32m==================================================\e[0m"
+echo -e "\e[1;33m How to use Unpack:\e[0m"
+echo -e "   pak-tool unpack /sdcard/Download/file.pak \$HOME/output_folder"
+echo -e "\e[1;33m How to use Repack:\e[0m"
+echo -e "   pak-tool repack \$HOME/output_folder /sdcard/Download/new_file.pak"
+echo -e "\e[1;32m==================================================\e[0m"
         num_files = size // 64
         print(f"[+] Found {num_files} files. Extracting...")
         for _ in range(num_files):
