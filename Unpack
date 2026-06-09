@@ -1,16 +1,20 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# 1. تنظيف الشاشة وتحديث تيرمكس
+# 1. Clear screen and update system
 clear
-echo "[-] جاري تحديث نظام تيرمكس وتثبيت بايثون..."
+echo -e "\e[1;32m[-] Preparing your PAK Extractor tool...\e[0m"
+sleep 2
+
+echo -e "\e[1;34m[-] Updating system packages and installing Python...\e[0m"
 pkg update -y && pkg upgrade -y
 pkg install python -y
 
-# 2. إنشاء مجلد الأداة في جهازك
+# 2. Create tool directory
 mkdir -p $HOME/pak_extractor
 cd $HOME/pak_extractor
 
-# 3. كتابة كود البايثون المخصص لفك الملفات داخل جهازك
+# 3. Create the Python extractor script
+echo -e "\e[1;34m[-] Creating script file...\e[0m"
 cat << 'EOF' > extractor.py
 import os
 import sys
@@ -18,7 +22,7 @@ import struct
 
 def extract_pak(pak_path, out_dir):
     if not os.path.exists(pak_path):
-        print(f"[-] الملف غير موجود في هذا المسار: {pak_path}")
+        print(f"[-] Error: File not found at: {pak_path}")
         return
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -26,12 +30,12 @@ def extract_pak(pak_path, out_dir):
     with open(pak_path, 'rb') as f:
         magic = f.read(4)
         if magic != b'PACK':
-            print("[-] خطأ: هذا الملف ليس ملف PAK قياسي (ربما مشفر).")
+            print("[-] Error: This is not a standard PAK file (It might be encrypted).")
             return
         offset, size = struct.unpack('<II', f.read(8))
         f.seek(offset)
         num_files = size // 64
-        print(f"[+] تم العثور على {num_files} ملف. جاري الاستخراج...")
+        print(f"[+] Found {num_files} files. Extracting...")
         for _ in range(num_files):
             file_name = f.read(56).decode('utf-8', errors='ignore').strip('\x00')
             file_offset, file_size = struct.unpack('<II', f.read(8))
@@ -44,22 +48,23 @@ def extract_pak(pak_path, out_dir):
                 os.makedirs(target_subdir)
             with open(target_path, 'wb') as out_file:
                 out_file.write(file_data)
-            print(f"[+] استخراج: {file_name}")
+            print(f"[+] Extracted: {file_name}")
             f.seek(current_pos)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("الاستخدام: pak-extract [مسار_ملف_PAK] [مجلد_المخرجات]")
+        print("Usage: pak-extract [PAK_FILE_PATH] [OUTPUT_DIRECTORY]")
     else:
-        extract_pak(sys.argv[1], sys.argv[2])
+        extract_pak(sys.argv, sys.argv)
 EOF
 
-# 4. جعل الأداة أمر رسمي في تيرمكس باسم pak-extract
+# 4. Make the tool a global command named pak-extract
 echo 'python $HOME/pak_extractor/extractor.py "$@"' > $PREFIX/bin/pak-extract
 chmod +x $PREFIX/bin/pak-extract
 
 clear
-echo "========================================="
-echo "   تم تثبيت الأداة بنجاح في جهازك!      "
-echo "========================================="
-echo " للاستخدام اكتب: pak-extract [المسار] [مجلد_الحفظ]"
+echo -e "\e[1;32m=========================================\e[0m"
+echo -e "\e[1;36m   Tool Installed Successfully!          \e[0m"
+echo -e "\e[1;32m=========================================\e[0m"
+echo -e "\e[1;33m Usage: pak-extract [path] [output_dir] \e[0m"
+echo -e "\e[1;32m=========================================\e[0m"
